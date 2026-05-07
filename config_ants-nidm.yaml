@@ -18,9 +18,9 @@ bids_app_args:
     $SUBJECT_SELECTION_FLAG: "--participant_label"
     --num-threads: "8"
 singularity_args:
-    #- --userns
     - --no-home
-    - --writable-tmpfs
+    - -B
+    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/ddn/scratch/sehatton/temp
 # Output foldername(s) to be zipped:
 zip_foldernames:
     ants-nidm_bidsapp: "0-1-0"

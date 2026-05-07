@@ -115,6 +115,14 @@ babs_check_nidm "$DATASET_NAME" "$SITE_NAME"
 # Initialize BABS and submit
 # ============================================================================
 OUTPUT_DIR="${RUN_DIR}/ants-nidm_bidsapp_${SITE_NAME}_${RUN_DATE}"
+# Ensure a disk-backed tmpdir for Singularity (use path bound in config)
+# Adjust `TMPDIR_HOST` if your bind uses a different location.
+TMPDIR_HOST=/tscc/lustre/ddn/scratch/sehatton/temp
+export SINGULARITYENV_TMPDIR="$TMPDIR_HOST"
+mkdir -p "$TMPDIR_HOST"
+chmod 700 "$TMPDIR_HOST"
+# Export TMPDIR for host processes too
+export TMPDIR="$TMPDIR_HOST"
 
 babs_init_and_submit \
     "${PWD}/${CONTAINER_DS_NAME}" \
@@ -122,6 +130,7 @@ babs_init_and_submit \
     "$CONFIG_PATH" \
     "$OUTPUT_DIR" \
     "$PROCESSING_LEVEL"
+
 
 # ============================================================================
 # Print completion message
