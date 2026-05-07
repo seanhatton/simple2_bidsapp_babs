@@ -20,7 +20,6 @@ bids_app_args:
     --nprocs: "12"
     --omp-nthreads: "8"
 singularity_args:
-    - --userns
     - --no-home
     - --writable-tmpfs
 # Output foldername(s) to be zipped:
@@ -30,7 +29,9 @@ zip_foldernames:
 cluster_resources:
     interpreting_shell: "/bin/bash"
     customized_text: |
-        #SBATCH --partition=mit_preemptable
+        #SBATCH --partition=condo
+        #SBATCH --qos=condo
+        #SBATCH --account=csd841
         #SBATCH --cpus-per-task=12
         #SBATCH --mem=18G
         #SBATCH --time=00:25:00
@@ -39,7 +40,7 @@ cluster_resources:
 script_preamble: |
     source ~/.bashrc
     micromamba activate babs
-    module load apptainer
+     module load singularitypro/3.11
 # Where to run the jobs:
 job_compute_space: "${COMPUTE_SPACE}"
 required_files:
