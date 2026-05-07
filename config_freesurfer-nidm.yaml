@@ -21,7 +21,8 @@ bids_app_args:
     # Note: NIDM will be generated automatically if NIDM/ directory exists
 singularity_args:
     - --no-home
-    - --writable-tmpfs
+    - -B
+    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/dd
 # Output foldername(s) to be zipped:
 zip_foldernames:
     freesurfer-nidm_bidsapp: "0-1-0"

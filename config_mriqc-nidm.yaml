@@ -21,7 +21,8 @@ bids_app_args:
     --omp-nthreads: "8"
 singularity_args:
     - --no-home
-    - --writable-tmpfs
+    - -B
+    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/dd
 # Output foldername(s) to be zipped:
 zip_foldernames:
     mriqc-nidm_bidsapp: "0-1-0"
