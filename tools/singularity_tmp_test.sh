@@ -6,7 +6,7 @@ HOST_TMP=/tscc/lustre/ddn/scratch/sehatton/temp
 mkdir -p "$HOST_TMP"
 chmod 700 "$HOST_TMP"
 
-IMAGE_PATH=containers/.datalad/environments/ants-nidm-bidsapp-0-1-0/image
+IMAGE_PATH=ants-nidm_bidsapp-container/.datalad/environments/ants-nidm-bidsapp-0-1-0/image
 
 # Check that singularity is available
 if ! command -v singularity >/dev/null 2>&1; then
