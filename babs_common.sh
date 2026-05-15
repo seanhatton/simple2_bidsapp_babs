@@ -121,7 +121,7 @@ babs_prepare_yaml_config() {
     local output_path="$2"
     shift 2
 
-    if [ -f "$output_path" ]; then
+    if [ -f "$output_path" ] && [ -s "$output_path" ]; then
         echo "Config file already exists at $output_path, skipping creation"
         return 0
     fi
