@@ -211,26 +211,50 @@ babs_print_completion() {
     echo "Log file: $LOG_FILE" | tee -a "$LOG_FILE"
 }
 
+# Print usage and examples to stderr. Call after an "ERROR: ..." line in any
+# arg-handling failure path so users see a consistent message.
+babs_print_usage() {
+    echo "  Usage: $0 <site_name> <dataset_name> [processing_level]" >&2
+    echo "    processing_level: 'subject' (default) or 'session'" >&2
+    echo "  Example: $0 Caltech study-ABIDE subject" >&2
+    echo "  Example: $0 Brown study-ADHD200 session" >&2
+}
+
 # Validate arguments
-# Usage: babs_validate_args <site_name> <dataset_name> [processing_level]
+# Usage: babs_validate_args <site_name> <dataset_name> <processing_level>
+# processing_level must be "subject" or "session" (no empty allowed; callers
+# should default to "subject" before passing in).
 babs_validate_args() {
     local site_name="$1"
     local dataset_name="$2"
     local processing_level="$3"
 
     if [ -z "$site_name" ] || [ -z "$dataset_name" ]; then
-        echo "Error: Missing arguments. Usage: $0 <site_name> <dataset_name> [processing_level]" >&2
-        echo "  processing_level: 'subject' (default) or 'session'" >&2
+        echo "ERROR: Missing arguments." >&2
+        babs_print_usage
         exit 1
     fi
 
-    # Validate processing level if provided
-    if [ -n "$processing_level" ] && [ "$processing_level" != "subject" ] && [ "$processing_level" != "session" ]; then
-        echo "ERROR: processing_level must be either 'subject' or 'session'" >&2
-        echo "  Provided: '$processing_level'" >&2
-        echo "  Usage: $0 <site_name> <dataset_name> [processing_level]" >&2
-        echo "  Example: $0 Caltech study-ABIDE subject" >&2
-        echo "  Example: $0 Brown study-ADHD200 session" >&2
+    if [ "$processing_level" != "subject" ] && [ "$processing_level" != "session" ]; then
+        echo "ERROR: processing_level must be either 'subject' or 'session' (provided: '$processing_level')" >&2
+        babs_print_usage
         exit 1
     fi
+}
+
+# Parse positional arguments for the wrapper scripts.
+# Sets globals: SITE_NAME, DATASET_NAME, PROCESSING_LEVEL.
+# Usage: babs_parse_args "$@"
+babs_parse_args() {
+    if [ "$#" -gt 3 ]; then
+        echo "ERROR: Too many arguments ($#)." >&2
+        babs_print_usage
+        exit 1
+    fi
+
+    SITE_NAME="$1"
+    DATASET_NAME="$2"
+    PROCESSING_LEVEL="${3:-subject}"
+
+    babs_validate_args "$SITE_NAME" "$DATASET_NAME" "$PROCESSING_LEVEL"
 }
