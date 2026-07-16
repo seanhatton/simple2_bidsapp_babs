@@ -22,7 +22,7 @@ bids_app_args:
 singularity_args:
     - --no-home
     - -B
-    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/ddn/scratch/sehatton/temp
+    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/dd
 # Output foldername(s) to be zipped:
 zip_foldernames:
     freesurfer-nidm_bidsapp: "0-1-0"
