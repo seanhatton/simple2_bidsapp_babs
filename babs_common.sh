@@ -5,7 +5,23 @@
 # Source .env if it exists
 if [ -f ".env" ]; then
     source .env
+else
+    echo "ERROR: .env file not found in the current directory." >&2
+    echo "       Edit .env (a template is provided in the repo) and set the paths for your cluster." >&2
+    exit 1
 fi
+
+# Ensure the required environment variables are defined. Without them,
+# RUN_DIR collapses to a bare '/<dataset>_<date>' and `babs init` fails with
+# a cryptic "parent folder does not exist" error.
+for var in BASE_DIR SCRATCH_DIR_ANTS SCRATCH_DIR_FS SCRATCH_DIR_MRIQC \
+           SCRATCH_DIR_COMPUTE DATALAD_SET_DIR; do
+    if [ -z "${!var:-}" ]; then
+        echo "ERROR: Required environment variable '$var' is not set." >&2
+        echo "       Define it in .env (see .env.example)." >&2
+        exit 1
+    fi
+done
 
 # Initialize run date - auto-generate YYMMDD or use RUN_DATE env var if set
 babs_init_run_date() {

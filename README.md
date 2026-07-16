@@ -33,16 +33,21 @@ simple2_bidsapp_babs/
 
 ## Environment Variables (.env)
 
-Create a `.env` file in the project directory:
+Create a `.env` file in the project directory (a working template is provided
+as `.env` in the repo; copy/adjust it as needed). Use **valid bash syntax** —
+no spaces around `=`, and quote any paths containing spaces:
 
 ```bash
 BASE_DIR='/path/of/current/repo/' # e.g., '/home/yibei/simple2_bidsapp_babs'
-SCRATCH_DIR = 'path/to/your/output/' # e.g., '/orcd/scratch/bcs/001/yibei/simple2'
-SCRATCH_DIR_ANTS= SCRATCH_DIR + 'ants_bidsapp_babs'
-SCRATCH_DIR_FS= SCRATCH_DIR + 'fs_bidsapp_babs'
-SCRATCH_DIR_MRIQC= SCRATCH_DIR + 'mriqc_bidsapp_babs'
-SCRATCH_DIR_COMPUTE= '/path/to/your/computespace' #e.g., '/orcd/scratch/bcs/001/yibei/'
-DATALAD_SET_DIR= '/path/to/your/input/data/' # e.g.,'/orcd/data/satra/002/datasets/simple2_datalad'
+SCRATCH_DIR='/path/to/your/output/' # e.g., '/orcd/scratch/bcs/001/yibei/simple2'
+
+# App-specific scratch directories (used by the wrapper scripts)
+SCRATCH_DIR_ANTS="${SCRATCH_DIR}/ants_bidsapp_babs"
+SCRATCH_DIR_FS="${SCRATCH_DIR}/fs_bidsapp_babs"
+SCRATCH_DIR_MRIQC="${SCRATCH_DIR}/mriqc_bidsapp_babs"
+
+SCRATCH_DIR_COMPUTE='/path/to/your/computespace' # e.g., '/orcd/scratch/bcs/001/yibei/'
+DATALAD_SET_DIR='/path/to/your/input/data/' # e.g., '/orcd/data/satra/002/datasets/simple2_datalad'
 ```
 
 `SCRATCH_DIR_ANTS`, `SCRATCH_DIR_FS`, and `SCRATCH_DIR_MRIQC` are used by the ANTs, FreeSurfer, and MRIQC wrapper scripts respectively. I like to put all of those  three together under `SCRATCH_DIR`, you can reorganize them in whatever way you prefer.
