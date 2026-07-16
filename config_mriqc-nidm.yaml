@@ -20,9 +20,10 @@ bids_app_args:
     --nprocs: "12"
     --omp-nthreads: "8"
 singularity_args:
-    - --no-home
+    - --home
+    - /tscc/lustre/ddn/scratch/sehatton/temp
     - -B
-    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/dd
+    - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/ddn/scratch/sehatton/temp
 # Output foldername(s) to be zipped:
 zip_foldernames:
     mriqc-nidm_bidsapp: "0-1-0"
@@ -42,6 +43,7 @@ script_preamble: |
     source ~/.bashrc
     micromamba activate babs
      module load singularitypro/3.11
+    export SINGULARITYENV_DATALAD_SSH_SOCKETDIR=/tscc/lustre/ddn/scratch/sehatton/temp
 # Where to run the jobs:
 job_compute_space: "${COMPUTE_SPACE}"
 required_files:
