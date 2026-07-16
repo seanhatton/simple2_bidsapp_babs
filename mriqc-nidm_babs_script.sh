@@ -85,6 +85,8 @@ NIDM_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/derivatives/ni
 # Verify BIDS dataset exists
 if [ ! -d "$BIDS_ORIGIN" ]; then
     echo "ERROR: BIDS dataset not found at $BIDS_ORIGIN"
+    echo "       Check that SITE_NAME ($SITE_NAME) and DATASET_NAME ($DATASET_NAME) are valid for this dataset."
+    echo "       Valid sites for this dataset are listed in the corresponding *_sitepath.txt file."
     exit 1
 fi
 

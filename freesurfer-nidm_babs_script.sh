@@ -84,6 +84,14 @@ babs_setup_container \
 BIDS_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/sourcedata/raw"
 NIDM_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/derivatives/nidm"
 
+# Verify BIDS dataset exists
+if [ ! -d "$BIDS_ORIGIN" ]; then
+    echo "ERROR: BIDS dataset not found at $BIDS_ORIGIN"
+    echo "       Check that SITE_NAME ($SITE_NAME) and DATASET_NAME ($DATASET_NAME) are valid for this dataset."
+    echo "       Valid sites for this dataset are listed in the corresponding *_sitepath.txt file."
+    exit 1
+fi
+
 CONFIG_PATH="${RUN_DIR}/config_freesurfer-nidm.yaml"
 
 babs_prepare_yaml_config \
