@@ -34,7 +34,7 @@ singularity_args:
     - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/ddn/scratch/sehatton/temp
     - -B
     - /tscc/lustre/ddn/scratch/sehatton/temp:/tmp
-    - --userns
+    #- --userns
     - --no-home
     - --writable-tmpfs
 # Output foldername(s) to be zipped. The app writes <output>/sub-<id>/... with
