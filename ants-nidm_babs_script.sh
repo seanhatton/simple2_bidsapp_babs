@@ -92,6 +92,12 @@ if [ ! -d "$BIDS_ORIGIN" ]; then
     exit 1
 fi
 
+# Check if NIDM exists
+NIDM_EXISTS=0
+if [ -d "$NIDM_ORIGIN" ] && [ -f "$NIDM_ORIGIN/nidm.ttl" ]; then
+    NIDM_EXISTS=1
+fi
+
 CONFIG_PATH="${RUN_DIR}/config_ants-nidm.yaml"
 
 babs_prepare_yaml_config \
@@ -102,10 +108,15 @@ babs_prepare_yaml_config \
     "COMPUTE_SPACE=${COMPUTE_DIR}" \
     "RUN_DATE=${RUN_DATE}"
 
+# Remove NIDM input from config if it doesn't exist
+if [ "$NIDM_EXISTS" != "1" ]; then
+    # Remove the NIDM section from the YAML config
+    sed -i '/    NIDM:/,/path_in_babs: sourcedata\/NIDM/d' "$CONFIG_PATH"
+fi
+
 babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
-echo "NIDM origin URL: $NIDM_ORIGIN"
 
 # ============================================================================
 # Check NIDM directory
