@@ -54,6 +54,8 @@ echo "Processing level: $PROCESSING_LEVEL"
 # ============================================================================
 # Set up environment
 # ============================================================================
+# Work around babs check_setup.py bug (hardcoded inputs/data path)
+export BABS_SKIP_CHECK_SETUP=1
 babs_setup_env
 
 # ============================================================================

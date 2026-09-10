@@ -64,6 +64,8 @@ echo "Processing level: $PROCESSING_LEVEL"
 # ============================================================================
 # Set up environment
 # ============================================================================
+# Work around babs check_setup.py bug (hardcoded inputs/data path)
+export BABS_SKIP_CHECK_SETUP=1
 babs_setup_env
 
 # ============================================================================
@@ -102,6 +104,12 @@ if [ ! -d "$BIDS_ORIGIN" ]; then
     exit 1
 fi
 
+# Check if NIDM exists
+NIDM_EXISTS=0
+if [ -d "$NIDM_ORIGIN" ] && [ -f "$NIDM_ORIGIN/nidm.ttl" ]; then
+    NIDM_EXISTS=1
+fi
+
 CONFIG_PATH="${RUN_DIR}/config_freesurfer-nidm.yaml"
 
 babs_prepare_yaml_config \
@@ -113,10 +121,20 @@ babs_prepare_yaml_config \
     "RUN_DATE=${RUN_DATE}" \
     "FS_LICENSE=${FS_LICENSE}"
 
+# Remove NIDM input from config if it doesn't exist
+if [ "$NIDM_EXISTS" != "1" ]; then
+    sed -i '/    NIDM:/,/path_in_babs: sourcedata\/NIDM/d' "$CONFIG_PATH"
+fi
+
 babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
-echo "NIDM origin URL: $NIDM_ORIGIN"
+
+if [ "$NIDM_EXISTS" = "1" ]; then
+    echo "NIDM origin URL: $NIDM_ORIGIN"
+else
+    echo "No NIDM found at $NIDM_ORIGIN - NIDM will be created from scratch"
+fi
 
 # ============================================================================
 # Check NIDM directory
