@@ -145,6 +145,14 @@ babs_check_nidm "$DATASET_NAME" "$SITE_NAME"
 # Initialize BABS and submit
 # ============================================================================
 OUTPUT_DIR="$(babs_study_output_dir "$DATASET_NAME" "$SITE_NAME" "freesurfer-nidm")"
+
+# Ensure the parent derivatives directory exists (required by babs init)
+PARENT_DIR="$(dirname "$OUTPUT_DIR")"
+if [ ! -d "$PARENT_DIR" ]; then
+    echo "Creating parent directory: $PARENT_DIR"
+    mkdir -p "$PARENT_DIR"
+fi
+
 # Ensure a disk-backed tmpdir for Singularity (use path bound in config)
 # Adjust `TMPDIR_HOST` if your bind uses a different location.
 TMPDIR_HOST=/tscc/lustre/ddn/scratch/sehatton/temp

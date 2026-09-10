@@ -1,6 +1,6 @@
 #!/bin/bash
-# MRIQC-NIDM BABS Script
-# Usage: ./mriqc-nidm_babs_script.sh <site_name> <dataset_name> [processing_level]
+# FreeSurfer-NIDM BABS Script
+# Usage: ./freesurfer-nidm_babs_script.sh <site_name> <dataset_name> [processing_level]
 #
 # Arguments:
 #   site_name         - Site identifier (e.g., Caltech, Brown)
@@ -8,8 +8,8 @@
 #   processing_level  - Optional: "subject" or "session" (default: subject)
 #
 # Examples:
-#   Single-session dataset:  ./mriqc-nidm_babs_script.sh Caltech study-ABIDE
-#   Multi-session dataset:   ./mriqc-nidm_babs_script.sh Brown study-ADHD200 session
+#   Single-session dataset:  ./freesurfer-nidm_babs_script.sh Caltech study-ABIDE
+#   Multi-session dataset:   ./freesurfer-nidm_babs_script.sh Brown study-ADHD200 session
 #
 # Optional environment variable:
 #   RUN_DATE=YYMMDD - Use specific date instead of auto-generated
@@ -21,16 +21,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/babs_common.sh"
 
 # ============================================================================
-# MRIQC-NIDM-specific configuration
+# FreeSurfer-NIDM-specific configuration
 # ============================================================================
-APP_NAME="mriqc-nidm"
-SCRATCH_DIR="$SCRATCH_DIR_MRIQC"
-CONTAINER_DS_NAME="mriqc-nidm_bidsapp-container"
-CONTAINER_NAME="mriqc-nidm-bidsapp-0-1-0"
-SIF_FILENAME="mriqc-nidm_bidsapp.sif"
+APP_NAME="freesurfer-nidm"
+SCRATCH_DIR="$SCRATCH_DIR_FS"
+CONTAINER_DS_NAME="freesurfer-nidm_bidsapp-container"
+CONTAINER_NAME="freesurfer-nidm-bidsapp-0-1-0"
+SIF_FILENAME="freesurfer-nidm_bidsapp.sif"
 SIF_ALT_PATHS=(
     "/orcd/home/002/yibei/simple2_bidsapp_babs"
     "/home/yibei/simple2_bidsapp_babs"
+    "/orcd/home/002/yibei/freesurfer_bidsapp"
+    "/home/yibei/freesurfer_bidsapp"
 )
 
 # ============================================================================
@@ -40,6 +42,16 @@ babs_parse_args "$@"
 
 # Initialize run date (auto-generate or use env var)
 babs_init_run_date
+
+# Validate FreeSurfer license (fail fast before submitting jobs)
+if [ -z "${FS_LICENSE:-}" ]; then
+    echo "ERROR: FS_LICENSE is not set. Add 'FS_LICENSE=/path/to/license.txt' to .env" >&2
+    exit 1
+fi
+if [ ! -f "$FS_LICENSE" ]; then
+    echo "ERROR: FreeSurfer license file not found at FS_LICENSE=$FS_LICENSE" >&2
+    exit 1
+fi
 
 # ============================================================================
 # Set up logging
@@ -60,7 +72,7 @@ babs_setup_env
 # Create directories
 # ============================================================================
 RUN_DIR="${SCRATCH_DIR}/${DATASET_NAME}_${RUN_DATE}"
-COMPUTE_DIR="${SCRATCH_DIR_COMPUTE}/mriqc-nidm_compute_${RUN_DATE}"
+COMPUTE_DIR="${SCRATCH_DIR_COMPUTE}/freesurfer-nidm_compute_${RUN_DATE}"
 
 mkdir -p "$RUN_DIR"
 mkdir -p "$COMPUTE_DIR"
@@ -98,15 +110,16 @@ if [ -d "$NIDM_ORIGIN" ] && [ -f "$NIDM_ORIGIN/nidm.ttl" ]; then
     NIDM_EXISTS=1
 fi
 
-CONFIG_PATH="${RUN_DIR}/config_mriqc-nidm.yaml"
+CONFIG_PATH="${RUN_DIR}/config_freesurfer-nidm.yaml"
 
 babs_prepare_yaml_config \
-    "${SCRIPT_DIR}/config_mriqc-nidm.yaml" \
+    "${SCRIPT_DIR}/config_freesurfer-nidm.yaml" \
     "$CONFIG_PATH" \
     "BIDS_ORIGIN=${BIDS_ORIGIN}" \
     "NIDM_ORIGIN=${NIDM_ORIGIN}" \
     "COMPUTE_SPACE=${COMPUTE_DIR}" \
-    "RUN_DATE=${RUN_DATE}"
+    "RUN_DATE=${RUN_DATE}" \
+    "FS_LICENSE=${FS_LICENSE}"
 
 # Remove NIDM input from config if it doesn't exist
 if [ "$NIDM_EXISTS" != "1" ]; then
@@ -131,7 +144,15 @@ babs_check_nidm "$DATASET_NAME" "$SITE_NAME"
 # ============================================================================
 # Initialize BABS and submit
 # ============================================================================
-OUTPUT_DIR="$(babs_study_output_dir "$DATASET_NAME" "$SITE_NAME" "mriqc-nidm")"
+OUTPUT_DIR="$(babs_study_output_dir "$DATASET_NAME" "$SITE_NAME" "freesurfer-nidm")"
+
+# Ensure the parent derivatives directory exists (required by babs init)
+PARENT_DIR="$(dirname "$OUTPUT_DIR")"
+if [ ! -d "$PARENT_DIR" ]; then
+    echo "Creating parent directory: $PARENT_DIR"
+    mkdir -p "$PARENT_DIR"
+fi
+
 # Ensure a disk-backed tmpdir for Singularity (use path bound in config)
 # Adjust `TMPDIR_HOST` if your bind uses a different location.
 TMPDIR_HOST=/tscc/lustre/ddn/scratch/sehatton/temp
@@ -140,6 +161,22 @@ mkdir -p "$TMPDIR_HOST"
 chmod 700 "$TMPDIR_HOST"
 # Export TMPDIR for host processes too
 export TMPDIR="$TMPDIR_HOST"
+
+babs_init_and_submit \
+    "${PWD}/${CONTAINER_DS_NAME}" \
+    "$CONTAINER_NAME" \
+    "$CONFIG_PATH" \
+    "$OUTPUT_DIR" \
+    "$PROCESSING_LEVEL"
+
+# ============================================================================
+# Print completion message
+# ============================================================================
+babs_print_completion "$OUTPUT_DIR"
+chmod 700 "$TMPDIR_HOST"
+# Export TMPDIR for host processes too
+export TMPDIR="$TMPDIR_HOST"
+
 
 
 babs_init_and_submit \
