@@ -80,7 +80,7 @@ babs_setup_container \
 # ============================================================================
 # Define paths for YAML substitution
 BIDS_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/sourcedata/raw"
-NIDM_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/derivatives/nidm"
+NIDM_ORIGIN="$(babs_nidm_origin "$DATASET_NAME" "$SITE_NAME")"
 
 # Verify BIDS dataset exists
 if [ ! -d "$BIDS_ORIGIN" ]; then
@@ -100,6 +100,8 @@ babs_prepare_yaml_config \
     "COMPUTE_SPACE=${COMPUTE_DIR}" \
     "RUN_DATE=${RUN_DATE}"
 
+babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
+
 echo "BIDS origin URL: $BIDS_ORIGIN"
 echo "NIDM origin URL: $NIDM_ORIGIN"
 
@@ -111,7 +113,7 @@ babs_check_nidm "$DATASET_NAME" "$SITE_NAME"
 # ============================================================================
 # Initialize BABS and submit
 # ============================================================================
-OUTPUT_DIR="${RUN_DIR}/mriqc-nidm_bidsapp_${SITE_NAME}_${RUN_DATE}"
+OUTPUT_DIR="$(babs_study_output_dir "$DATASET_NAME" "$SITE_NAME" "mriqc-nidm")"
 # Ensure a disk-backed tmpdir for Singularity (use path bound in config)
 # Adjust `TMPDIR_HOST` if your bind uses a different location.
 TMPDIR_HOST=/tscc/lustre/ddn/scratch/sehatton/temp
@@ -120,6 +122,7 @@ mkdir -p "$TMPDIR_HOST"
 chmod 700 "$TMPDIR_HOST"
 # Export TMPDIR for host processes too
 export TMPDIR="$TMPDIR_HOST"
+
 
 babs_init_and_submit \
     "${PWD}/${CONTAINER_DS_NAME}" \

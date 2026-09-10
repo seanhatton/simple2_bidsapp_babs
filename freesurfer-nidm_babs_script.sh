@@ -43,6 +43,16 @@ babs_parse_args "$@"
 # Initialize run date (auto-generate or use env var)
 babs_init_run_date
 
+# Validate FreeSurfer license (fail fast before submitting jobs)
+if [ -z "${FS_LICENSE:-}" ]; then
+    echo "ERROR: FS_LICENSE is not set. Add 'FS_LICENSE=/path/to/license.txt' to .env" >&2
+    exit 1
+fi
+if [ ! -f "$FS_LICENSE" ]; then
+    echo "ERROR: FreeSurfer license file not found at FS_LICENSE=$FS_LICENSE" >&2
+    exit 1
+fi
+
 # ============================================================================
 # Set up logging
 # ============================================================================
@@ -82,7 +92,7 @@ babs_setup_container \
 # ============================================================================
 # Define paths for YAML substitution
 BIDS_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/sourcedata/raw"
-NIDM_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/derivatives/nidm"
+NIDM_ORIGIN="$(babs_nidm_origin "$DATASET_NAME" "$SITE_NAME")"
 
 # Verify BIDS dataset exists
 if [ ! -d "$BIDS_ORIGIN" ]; then
@@ -100,7 +110,10 @@ babs_prepare_yaml_config \
     "BIDS_ORIGIN=${BIDS_ORIGIN}" \
     "NIDM_ORIGIN=${NIDM_ORIGIN}" \
     "COMPUTE_SPACE=${COMPUTE_DIR}" \
-    "RUN_DATE=${RUN_DATE}"
+    "RUN_DATE=${RUN_DATE}" \
+    "FS_LICENSE=${FS_LICENSE}"
+
+babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
 echo "NIDM origin URL: $NIDM_ORIGIN"
@@ -113,7 +126,7 @@ babs_check_nidm "$DATASET_NAME" "$SITE_NAME"
 # ============================================================================
 # Initialize BABS and submit
 # ============================================================================
-OUTPUT_DIR="${RUN_DIR}/freesurfer-nidm_bidsapp_${SITE_NAME}_${RUN_DATE}"
+OUTPUT_DIR="$(babs_study_output_dir "$DATASET_NAME" "$SITE_NAME" "freesurfer-nidm")"
 # Ensure a disk-backed tmpdir for Singularity (use path bound in config)
 # Adjust `TMPDIR_HOST` if your bind uses a different location.
 TMPDIR_HOST=/tscc/lustre/ddn/scratch/sehatton/temp

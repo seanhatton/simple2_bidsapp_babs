@@ -1,4 +1,9 @@
 # This is a config yaml file for FreeSurfer BIDS App
+# BABS project layout (requires a BABS revision containing PennLINC/babs#369)
+analysis_path: "."
+input_ria_path: ".babs/input_ria"
+output_ria_path: ".babs/output_ria"
+
 # Input datasets configuration
 input_datasets:
     BIDS:
@@ -6,13 +11,13 @@ input_datasets:
             - "anat/*_T1w.nii*"
         is_zipped: false
         origin_url: "${BIDS_ORIGIN}"
-        path_in_babs: inputs/data/BIDS
+        path_in_babs: sourcedata/BIDS
     NIDM:
         required_files:
             - "nidm.ttl"
         is_zipped: false
         origin_url: "${NIDM_ORIGIN}"
-        path_in_babs: inputs/data/NIDM
+        path_in_babs: sourcedata/NIDM
 # Arguments passed to the application inside the container
 bids_app_args:
     "$SUBJECT_SELECTION_FLAG": "--participant_label"
@@ -27,12 +32,42 @@ singularity_args:
     - /tscc/lustre/ddn/scratch/sehatton/temp:/tscc/lustre/ddn/scratch/sehatton/temp
     - -B
     - /tscc/lustre/ddn/scratch/sehatton/temp:/tmp
-# Output foldername(s) to be zipped:
+    - --userns
+    - --no-home
+    - --writable-tmpfs
+# Output foldername(s) to be zipped. The app writes <output>/sub-<id>/... with
+# no app-name wrapper (per-subject layout, ae9518a). ${subid} is NOT substituted
+# by babs_prepare_yaml_config (only vars passed to it are); it survives into the
+# rendered participant_job.sh where bash defines ${subid} at runtime, so each
+# job zips its own subject folder: sub-<id>_sub-<id>-0-1-0.zip.
 zip_foldernames:
-    freesurfer-nidm_bidsapp: "0-1-0"
+    ${subid}: "0-1-0"
 # How much cluster resources it needs:
 cluster_resources:
     interpreting_shell: "/bin/bash"
+    # mit_preemptable: 591 nodes and a 2-day ceiling, versus mit_normal's 50
+    # nodes and 12h. The throughput difference is the reason to be here.
+    #
+    # --no-requeue is MANDATORY on this partition, not optional tuning.
+    # mit_preemptable has PreemptMode=REQUEUE and GraceTime=0. A requeued job
+    # keeps its SLURM job id, so participant_job.sh recomputes the SAME
+    # BRANCH="job-${SLURM_ARRAY_JOB_ID}-${SLURM_ARRAY_TASK_ID}-${subid}" and then
+    # hits its bare `mkdir "${BRANCH}"` (line 47, no -p) against the directory
+    # the killed attempt left behind -- a guaranteed failure. The script does
+    # register `trap cleanup EXIT` to remove that directory, but an untrapped
+    # SIGTERM/SIGKILL bypasses an EXIT trap, and GraceTime=0 leaves no window
+    # anyway. The freesurfer aug20 run lost sub-0051457 exactly this way.
+    #
+    # With --no-requeue, SLURM cancels instead of requeueing (PreemptMode=REQUEUE
+    # requeues only jobs that permit it). Preemption then becomes a clean job
+    # failure, and `babs submit` retries it under a NEW array job id -- hence a
+    # new BRANCH and no collision. Expect some jobs to need resubmission; that is
+    # the trade for the extra nodes.
+    #
+    # mem: both aug20 subjects peaked at MaxRSS ~23.99 GB against a 24G request,
+    # i.e. right at the ceiling -- 32G gives real headroom.
+    # time: 03:30:00 was not enough; sub-0051457 hit the wall on a ~2x-slow node.
+    # The aug20 run completed at 06:00:00 (fastest subject used 47 min).
     customized_text: |
         #SBATCH --partition=condo
         #SBATCH --qos=condo

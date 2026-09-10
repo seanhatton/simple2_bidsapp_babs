@@ -38,17 +38,70 @@ babs_setup_logging() {
     local scratch_dir="$1"
     local app_name="$2"
 
+    # First-ever run of an app has no scratch dir yet, and this runs before
+    # RUN_DIR is created -- without this, tee fails and the run has no log.
+    mkdir -p "$scratch_dir"
+
     LOG_FILE="${scratch_dir}/babs_script_${RUN_DATE}_$(date +%Y%m%d_%H%M%S).log"
     echo "=== Script started at $(date) ===" | tee "$LOG_FILE"
     exec > >(tee -a "$LOG_FILE") 2>&1
+}
+
+# Environment used on the LOGIN side (i.e. for `babs init`/`babs submit`).
+# Must hold a BABS revision containing PennLINC/babs#369 (merged 2026-07, but in
+# no PyPI release as of 0.5.4 -- install from git main): the configs here use
+# the BIDS-study layout (analysis_path ".", inputs under sourcedata/), and any
+# released babs silently produces the OLD project structure instead of erroring.
+# Override with BABS_ENV if you install it elsewhere.
+BABS_ENV="${BABS_ENV:-babs}"
+
+# NIDM derivative to use as the augmentation source. `derivatives/nidm` does not
+# exist in the satra study tree; the real shared resource is versioned.
+# Override with BABS_NIDM_DERIV to point at a different NIDM release.
+BABS_NIDM_DERIV="${BABS_NIDM_DERIV:-nidm_4.5.0}"
+
+# Fail fast if the active babs cannot honour the BIDS-study layout keys the
+# configs set. This is worth a hard check rather than a README line, because the
+# failure is silent: babs 0.5.2's base.py hardcodes
+#     self.analysis_path  = op.join(self.project_root, 'analysis')
+#     self.input_ria_path = op.join(self.project_root, 'input_ria')
+# and never reads them from the config, and nothing rejects the now-unknown keys.
+# `babs init` then succeeds and quietly builds a LEGACY-layout project. Worse,
+# the mistake stays hidden downstream, because a legacy project does have a
+# top-level output_ria for a harvest script to find.
+#
+# Limitation: this compares the release triple only, so a hypothetical
+# 0.5.5.devN predating PennLINC/babs#369 would pass. It catches the case that
+# actually occurs -- an env still on 0.5.2.
+babs_require_pr369() {
+    local raw ver min="0.5.5"
+    raw="$(babs --version 2>&1 | tail -1)"
+    ver="$(printf '%s' "$raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+
+    if [ -z "$ver" ]; then
+        echo "WARNING: could not parse a version from 'babs --version' (${raw})." >&2
+        echo "  Skipping the PR#369 check -- verify the layout by hand." >&2
+        return 0
+    fi
+
+    if [ "$(printf '%s\n%s\n' "$min" "$ver" | sort -V | head -1)" != "$min" ]; then
+        echo "ERROR: babs ${ver} (env: ${BABS_ENV}) predates PennLINC/babs#369." >&2
+        echo "  The configs here set analysis_path / input_ria_path /" >&2
+        echo "  output_ria_path. This babs ignores them SILENTLY and would build a" >&2
+        echo "  legacy-layout project instead -- no error, wrong result." >&2
+        echo "  Install a babs >= ${min} and point BABS_ENV at it." >&2
+        exit 1
+    fi
 }
 
 # Set up environment - source bashrc, activate babs, load apptainer
 babs_setup_env() {
     echo "Setting up environment..."
     source ~/.bashrc
-    micromamba activate babs
+    micromamba activate "$BABS_ENV"
     module load apptainer 2>/dev/null || true
+    echo "Using BABS: $(babs --version 2>&1 | tail -1) (env: ${BABS_ENV})"
+    babs_require_pr369
 }
 
 # Generic container setup
@@ -153,10 +206,13 @@ babs_prepare_yaml_config() {
         local var="${subst%%=*}"
         local value="${subst#*=}"
 
-        # Escape special characters in the replacement value for sed
-        # Replace \ with \\, & with \&, and / with \/
+        # Escape only the characters that are special in a sed *replacement*:
+        # backslash, ampersand, and the '/' delimiter. Regex metacharacters such
+        # as '.' must NOT be escaped here (this is replacement text, not a
+        # pattern) or they leak literal backslashes into the config, e.g.
+        # "license.txt" -> "license\.txt". Escape backslash first.
         local escaped_value
-        escaped_value=$(printf '%s\n' "$value" | sed 's/[[\.*^$()+?{|]/\\&/g; s/&/\\&/g; s/\\/\\\\/g; s/\//\\\//g')
+        escaped_value=$(printf '%s' "$value" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/\//\\\//g')
 
         # Replace both ${VAR} and $VAR forms
         sed -i "s/\${${var}}/${escaped_value}/g" "$output_path"
@@ -168,18 +224,126 @@ babs_prepare_yaml_config() {
     echo "YAML config file created at $output_path"
 }
 
+# Add BABS's session placeholder only for session-wise projects. BABS defines
+# $sesid in session job scripts, but not in subject job scripts.
+# Usage: babs_configure_session_selection <config_path> <processing_level>
+babs_configure_session_selection() {
+    local config_path="$1"
+    local processing_level="$2"
+
+    if [ ! -f "$config_path" ]; then
+        echo "ERROR: Config file not found: $config_path" >&2
+        return 1
+    fi
+
+    # Make repeated wrapper runs deterministic if a generated config is reused.
+    sed -i '/^[[:space:]]*\$SESSION_SELECTION_FLAG:/d' "$config_path"
+
+    if [ "$processing_level" = "session" ]; then
+        if ! grep -q '^[[:space:]]*\$SUBJECT_SELECTION_FLAG:' "$config_path"; then
+            echo "ERROR: \$SUBJECT_SELECTION_FLAG not found in $config_path" >&2
+            return 1
+        fi
+        sed -i \
+            '/^[[:space:]]*\$SUBJECT_SELECTION_FLAG:/a\    $SESSION_SELECTION_FLAG: "--session-label"' \
+            "$config_path"
+    fi
+}
+
+# Resolve the NIDM input dataset for a dataset/site.
+# Usage: babs_nidm_origin <dataset_name> <site_name>
+babs_nidm_origin() {
+    echo "${DATALAD_SET_DIR}/${1}/site-${2}/derivatives/${BABS_NIDM_DERIV}"
+}
+
+# Resolve the BABS project directory inside the study tree.
+# The project must live beside the other derivatives (that is where the study
+# layout expects results to land), NOT in scratch: scratch is only the compute
+# space, and a project created there is invisible to anything reading the study.
+# Usage: babs_study_output_dir <dataset_name> <site_name> <app_name>
+babs_study_output_dir() {
+    # BABS_OUTPUT_DIR wins when set: it places the project at an arbitrary path.
+    # Renaming after `babs init` is not a simple `mv`: babs bakes absolute paths
+    # into code/submit_job_template.yaml, so the final path has to be chosen up
+    # front.
+    if [ -n "${BABS_OUTPUT_DIR:-}" ]; then
+        echo "$BABS_OUTPUT_DIR"
+        return
+    fi
+    # Default is UNDATED: the project's own git history carries every date that
+    # matters, and a date suffix in the folder name is what previously left the
+    # study with parallel half-runs (babs-freesurfer-nidm_aug20 + _aug26) that
+    # then had to be hand-merged and renamed. RUN_DATE still stamps the scratch
+    # run dir, the compute space, the log file and the SLURM job name, which are
+    # per-attempt rather than part of the deliverable. If a project already
+    # exists here, `babs init` refuses -- deliberately: resuming or redoing a
+    # site is a decision, made explicit via BABS_OUTPUT_DIR.
+    echo "${DATALAD_SET_DIR}/${1}/site-${2}/derivatives/babs-${3}"
+}
+
 # Check NIDM directory for incremental building
 # Usage: babs_check_nidm <dataset_name> <site_name>
 babs_check_nidm() {
     local dataset_name="$1"
     local site_name="$2"
-    local nidm_dir="${DATALAD_SET_DIR}/${dataset_name}/site-${site_name}/derivatives/nidm"
+    local nidm_dir
+    nidm_dir="$(babs_nidm_origin "$dataset_name" "$site_name")"
 
-    if [ -d "$nidm_dir" ] && [ -f "$nidm_dir/nidm.ttl" ]; then
-        echo "Found NIDM directory at $nidm_dir - NIDM will be built incrementally"
+    # Per-subject layout: <nidm_deriv>/sub-<id>/nidm.ttl (there is no nidm.ttl at
+    # the derivative root, so checking for one there always reported "not found").
+    if [ -d "$nidm_dir" ] && compgen -G "${nidm_dir}/sub-*/nidm.ttl" >/dev/null; then
+        local n
+        n=$(compgen -G "${nidm_dir}/sub-*/nidm.ttl" | wc -l)
+        echo "Found NIDM at $nidm_dir (${n} subject file(s)) - NIDM will be built incrementally"
     else
-        echo "No NIDM directory found - NIDM will be created from scratch"
+        echo "No NIDM found at $nidm_dir - NIDM will be created from scratch"
     fi
+}
+
+# Resolve the Unix group that should own write access to a BABS project.
+#
+# Why this matters: without `--shared_group`, `babs init` creates the analysis
+# dataset with core.sharedRepository unset. git-annex then chmods every content
+# directory under .git/annex/objects to 0555 (r-xr-xr-x). Adding or dropping a
+# key requires *writing* that directory, and restoring the write bit requires
+# chmod -- which only the file's OWNER may do, never a mere group member. The
+# net effect is that a collaborator in the right Unix group can read the whole
+# derivative but cannot write a single annexed file, which is why the only way
+# to contribute was to clone it (the `_pub` clones under site-Caltech).
+# With --shared_group, annex creates those directories 2775 instead and any
+# group member can write in place.
+#
+# Default: inherit the group already owning the parent directory, so the project
+# matches whatever the study tree uses instead of hardcoding a site-specific
+# name. Override with BABS_SHARED_GROUP; set it to "none" to opt out entirely.
+# Usage: babs_shared_group <output_dir>
+babs_shared_group() {
+    local output_dir="$1"
+
+    if [ "${BABS_SHARED_GROUP:-}" = "none" ]; then
+        return 0
+    fi
+    if [ -n "${BABS_SHARED_GROUP:-}" ]; then
+        echo "$BABS_SHARED_GROUP"
+        return 0
+    fi
+
+    # Walk up to the first existing ancestor -- output_dir itself does not exist
+    # yet at `babs init` time.
+    local probe="$output_dir"
+    while [ -n "$probe" ] && [ ! -d "$probe" ]; do
+        probe=$(dirname "$probe")
+        [ "$probe" = "/" ] && break
+    done
+    [ -d "$probe" ] || return 0
+
+    local grp
+    grp=$(stat -c '%G' "$probe" 2>/dev/null) || return 0
+    # A personal group (same name as the user) grants nothing to collaborators.
+    if [ -z "$grp" ] || [ "$grp" = "UNKNOWN" ] || [ "$grp" = "$(id -un)" ]; then
+        return 0
+    fi
+    echo "$grp"
 }
 
 # Initialize BABS and submit jobs
@@ -193,27 +357,136 @@ babs_init_and_submit() {
 
     echo "Initializing BABS with the dataset-specific output directory..."
 
+    # Optional pilot / re-run subset: set BABS_LIST_SUB_FILE to a CSV with a
+    # 'sub_id' column (plus 'ses_id' for session-level projects) to restrict the
+    # project to those subjects. Unset means "every subject in the input".
+    local list_sub_args=()
+    if [ -n "${BABS_LIST_SUB_FILE:-}" ]; then
+        if [ ! -f "$BABS_LIST_SUB_FILE" ]; then
+            echo "ERROR: BABS_LIST_SUB_FILE not found: $BABS_LIST_SUB_FILE" >&2
+            exit 1
+        fi
+        echo "Restricting project to subjects listed in $BABS_LIST_SUB_FILE:"
+        cat "$BABS_LIST_SUB_FILE"
+        list_sub_args=( --list_sub_file "$BABS_LIST_SUB_FILE" )
+    fi
+
+    # See babs_shared_group() for why an unshared annex is effectively
+    # read-only for everyone except the user who ran `babs init`.
+    local shared_args=()
+    local shared_grp
+    shared_grp=$(babs_shared_group "${output_dir}")
+    if [ -n "$shared_grp" ]; then
+        echo "Granting write access to Unix group: ${shared_grp}"
+        shared_args=( --shared_group "$shared_grp" )
+    else
+        echo "NOTE: no shared group resolved; project will be writable only by $(id -un)."
+    fi
+
     babs init \
         --container_ds "${container_ds_path}" \
         --container_name "${container_name}" \
         --container_config "${config_path}" \
         --processing_level "${processing_level}" \
         --queue slurm \
+        ${shared_args[@]+"${shared_args[@]}"} \
+        ${list_sub_args[@]+"${list_sub_args[@]}"} \
         "${output_dir}"
 
     cd "${output_dir}" || exit 1
 
-    # Optional: First check the setup before submitting
-    echo "Checking BABS setup..."
-    babs check-setup "${PWD}" --job_test
+    # Put text files in git instead of git-annex.
+    #
+    # BABS hardcodes cfg_proc='yoda' when it creates the analysis dataset
+    # (bootstrap.py), so text2git cannot be passed through `babs init` and has to
+    # be applied to the project afterwards. Without it EVERY output is annexed --
+    # including the .ttl, .json and .tsv that are the point of these derivatives.
+    # Annexed files are 0444 symlinks into .git/annex/objects, so they cannot be
+    # read without `datalad get`, cannot be diffed by git, and cannot be edited by
+    # anyone but the annex object owner. Applying it here (before any job runs)
+    # means the rule is in .gitattributes ahead of the first harvested output.
+    #
+    # Binaries -- the per-subject zips, .nii.gz, .svg -- still go to annex, which
+    # is what we want: this only changes where *text* lands.
+    if [ "${BABS_TEXT2GIT:-1}" = "1" ]; then
+        echo "Applying text2git so .ttl/.json/.tsv land in git, not annex..."
+        datalad run-procedure -d "${output_dir}" cfg_text2git
 
-    # If babs check-setup is successful, submit all jobs
-    if [ $? -eq 0 ]; then
-        echo "BABS setup check successful, submitting all jobs..."
-        babs submit
+        # Push the commit to both RIA siblings immediately. `babs init` already
+        # published master to them BEFORE this commit existed, and nothing later
+        # pushes it: `babs submit` does no push, jobs clone from the input RIA,
+        # and `babs merge` advances the output RIA from the job branches. Left
+        # unpushed, the rule (a) never reaches the job clones, and (b) strands
+        # the local branch permanently one commit ahead of output/master -- a
+        # root-level .gitattributes change, outside code/, which is exactly the
+        # divergence post_babs.sh refuses to auto-replay at harvest time.
+        # --data nothing: this is a git-history push, no annexed content.
+        echo "Publishing the text2git commit to the RIA siblings..."
+        datalad push --to input --data nothing
+        datalad push --to output --data nothing
+    fi
+
+    # Check the setup before submitting.
+    #
+    # NOTE: `babs check-setup` currently crashes on the PR #369 BIDS-study layout
+    # (analysis_path=".", inputs under sourcedata/). check_setup.py hardcodes a
+    # pre-check on `<analysis_path>/inputs/data` that does not exist in that
+    # layout, raising FileNotFoundError before it reaches the real per-input-
+    # dataset validation. That pre-check is redundant with the per-dataset loop
+    # that follows it, so bypassing check-setup does not lose validation of the
+    # input datasets themselves.
+    #
+    # It DOES cost something, though, and not just dataset checks: `--job_test`
+    # is documented in babs as "Whether to submit and run a test job", so
+    # skipping it skips a real sbatch submission with this config's
+    # cluster_resources. That is not hypothetical -- the ants config once asked
+    # for --time=18:00:00 against mit_normal's 12h cap, which sbatch rejects
+    # outright, and with this flag set the project built completely and then
+    # submitted nothing. A test job would have surfaced it at setup time.
+    #
+    # So: use it to work around the upstream crash, not as a default. Set
+    # BABS_SKIP_CHECK_SETUP=1 for study-layout projects until babs fixes
+    # check_setup.py upstream.
+    local check_setup_ok=0
+    if [ "${BABS_SKIP_CHECK_SETUP:-0}" = "1" ]; then
+        echo "BABS_SKIP_CHECK_SETUP=1: skipping 'babs check-setup'"
+        echo "  (works around babs check_setup.py hardcoded 'inputs/data' check"
+        echo "   that is incompatible with the PR #369 BIDS-study layout)."
+        check_setup_ok=1
+    else
+        echo "Checking BABS setup..."
+        if babs check-setup "${PWD}" --job_test; then
+            check_setup_ok=1
+        fi
+    fi
+
+    # Optional controlled ramp: set BABS_SUBMIT_COUNT=N to submit only the first
+    # N jobs. Use it when an app's memory/wall-clock needs are still unverified --
+    # measure MaxRSS/Elapsed from the first completions, size cluster_resources
+    # from real data, then `babs submit` the rest into the same project. Unset
+    # means "submit every remaining job".
+    local submit_args=()
+    if [ -n "${BABS_SUBMIT_COUNT:-}" ]; then
+        if ! [[ "$BABS_SUBMIT_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: BABS_SUBMIT_COUNT must be a positive integer (got '$BABS_SUBMIT_COUNT')" >&2
+            exit 1
+        fi
+        submit_args=( --count "$BABS_SUBMIT_COUNT" )
+    fi
+
+    if [ "$check_setup_ok" -eq 1 ]; then
+        if [ -n "${BABS_SUBMIT_COUNT:-}" ]; then
+            echo "Submitting first ${BABS_SUBMIT_COUNT} job(s) (BABS_SUBMIT_COUNT set)..."
+            echo "  Submit the rest later with: babs submit \"${output_dir}\""
+        else
+            echo "Submitting all jobs..."
+        fi
+        babs submit ${submit_args[@]+"${submit_args[@]}"}
     else
         echo "BABS setup check failed. Please review the errors above."
-        echo "You can manually submit after fixing issues with: babs submit --all"
+        echo "If this is the known study-layout check_setup bug (FileNotFoundError"
+        echo "on '<project>/inputs/data'), re-run with BABS_SKIP_CHECK_SETUP=1."
+        echo "Or submit manually after review with: babs submit"
         exit 1
     fi
 }
