@@ -82,6 +82,12 @@ babs_setup_container \
 BIDS_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/sourcedata/raw"
 NIDM_ORIGIN="$(babs_nidm_origin "$DATASET_NAME" "$SITE_NAME")"
 
+# Check if NIDM exists
+NIDM_EXISTS=0
+if [ -d "$NIDM_ORIGIN" ] && [ -f "$NIDM_ORIGIN/nidm.ttl" ]; then
+    NIDM_EXISTS=1
+fi
+
 # Verify BIDS dataset exists
 if [ ! -d "$BIDS_ORIGIN" ]; then
     echo "ERROR: BIDS dataset not found at $BIDS_ORIGIN"
@@ -100,10 +106,20 @@ babs_prepare_yaml_config \
     "COMPUTE_SPACE=${COMPUTE_DIR}" \
     "RUN_DATE=${RUN_DATE}"
 
+# Remove NIDM input from config if it doesn't exist
+if [ "$NIDM_EXISTS" != "1" ]; then
+    sed -i '/    NIDM:/,/path_in_babs: sourcedata\/NIDM/d' "$CONFIG_PATH"
+fi
+
 babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
-echo "NIDM origin URL: $NIDM_ORIGIN"
+
+if [ "$NIDM_EXISTS" = "1" ]; then
+    echo "NIDM origin URL: $NIDM_ORIGIN"
+else
+    echo "No NIDM found at $NIDM_ORIGIN - NIDM will be created from scratch"
+fi
 
 # ============================================================================
 # Check NIDM directory
