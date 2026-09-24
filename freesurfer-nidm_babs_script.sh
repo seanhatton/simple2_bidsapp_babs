@@ -45,7 +45,7 @@ babs_init_run_date
 
 # Validate FreeSurfer license (fail fast before submitting jobs)
 if [ -z "${FS_LICENSE:-}" ]; then
-    echo "ERROR: FS_LICENSE is not set. Add 'FS_LICENSE=/path/to/license.txt' to .env" >&2
+    echo "ERROR: FS_LICENSE is not set. Add 'FS_LICENSE=/tscc/nfs/home/sehatton/simple2_bidsapp_babs/license.txt' to .env" >&2
     exit 1
 fi
 if [ ! -f "$FS_LICENSE" ]; then
