@@ -18,6 +18,7 @@ input_datasets:
         is_zipped: false
         origin_url: "${NIDM_ORIGIN}"
         path_in_babs: sourcedata/NIDM
+        optional: true
 # Arguments passed to the application inside the container
 bids_app_args:
     $SUBJECT_SELECTION_FLAG: "--participant-label"
