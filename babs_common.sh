@@ -290,6 +290,12 @@ babs_nidm_origin() {
     echo "${DATALAD_SET_DIR}/${1}/site-${2}/derivatives/${BABS_NIDM_DERIV}"
 }
 
+babs_nidm_exists() {
+    local nidm_dir
+    nidm_dir="$(babs_nidm_origin "$1" "$2")"
+    [ -d "$nidm_dir" ] && compgen -G "${nidm_dir}/sub-*/nidm.ttl" >/dev/null
+}
+
 # Resolve the BABS project directory inside the study tree.
 # The project must live beside the other derivatives (that is where the study
 # layout expects results to land), NOT in scratch: scratch is only the compute
