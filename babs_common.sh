@@ -60,6 +60,17 @@ BABS_ENV="${BABS_ENV:-babs}"
 # Override with BABS_NIDM_DERIV to point at a different NIDM release.
 BABS_NIDM_DERIV="${BABS_NIDM_DERIV:-nidm_4.5.0}"
 
+# Disk-backed scratch handed to the container as its TMPDIR/home and bound to
+# /tmp. Singularity needs a real writable filesystem here; the default
+# node-local /tmp is either tiny or absent on most HPC nodes.
+#
+# Override with TMPDIR_HOST in .env if your cluster's scratch lives elsewhere.
+# It is deliberately NOT baked into the YAML configs: those are rendered into
+# participant_job.sh and re-read on the compute side, so a personal path
+# hardcoded in a tracked file would tie the configs to one person's account.
+TMPDIR_HOST="${TMPDIR_HOST:-${SCRATCH_DIR_COMPUTE}/singularity_tmp}"
+export TMPDIR_HOST
+
 # Fail fast if the active babs cannot honour the BIDS-study layout keys the
 # configs set. This is worth a hard check rather than a README line, because the
 # failure is silent: babs 0.5.2's base.py hardcodes
@@ -75,13 +86,36 @@ BABS_NIDM_DERIV="${BABS_NIDM_DERIV:-nidm_4.5.0}"
 # actually occurs -- an env still on 0.5.2.
 babs_require_pr369() {
     local raw ver min="0.5.5"
+
+    if [ "${BABS_SKIP_PR369_CHECK:-0}" = "1" ]; then
+        echo "WARNING: BABS_SKIP_PR369_CHECK=1 -- NOT verifying the babs version." >&2
+        echo "  'babs init' will SILENTLY build a legacy-layout project if this" >&2
+        echo "  babs predates PennLINC/babs#369. Check the layout by hand." >&2
+        return 0
+    fi
+
+    if ! command -v babs >/dev/null 2>&1; then
+        echo "ERROR: 'babs' is not on PATH (env: ${BABS_ENV})." >&2
+        echo "  The env exists but does not contain babs, so its version cannot" >&2
+        echo "  be checked -- and an unchecked babs is exactly how a" >&2
+        echo "  legacy-layout project gets built with no error." >&2
+        echo "  Recreate the env, which installs babs from git main:" >&2
+        echo "      micromamba create -n ${BABS_ENV} -f environment_hpc.yml -y" >&2
+        exit 1
+    fi
+
     raw="$(babs --version 2>&1 | tail -1)"
     ver="$(printf '%s' "$raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 
     if [ -z "$ver" ]; then
-        echo "WARNING: could not parse a version from 'babs --version' (${raw})." >&2
-        echo "  Skipping the PR#369 check -- verify the layout by hand." >&2
-        return 0
+        echo "ERROR: could not parse a version from 'babs --version' (${raw})." >&2
+        echo "  Refusing to continue: without a version there is no way to know" >&2
+        echo "  whether this babs honours the BIDS-study layout, and guessing" >&2
+        echo "  wrong yields a legacy-layout project with NO error." >&2
+        echo "  If this is a deliberate git/dev install, re-run with" >&2
+        echo "      BABS_SKIP_PR369_CHECK=1" >&2
+        echo "  after confirming it contains PennLINC/babs#369." >&2
+        exit 1
     fi
 
     if [ "$(printf '%s\n%s\n' "$min" "$ver" | sort -V | head -1)" != "$min" ]; then

@@ -28,9 +28,10 @@ SCRATCH_DIR="$SCRATCH_DIR_MRIQC"
 CONTAINER_DS_NAME="mriqc-nidm_bidsapp-container"
 CONTAINER_NAME="mriqc-nidm-bidsapp-0-1-0"
 SIF_FILENAME="mriqc-nidm_bidsapp.sif"
+# Fallback locations to search for the .sif if it is not in BASE_DIR or the
+# current directory. Add your own here, or drop the .sif next to these scripts.
 SIF_ALT_PATHS=(
-    "/orcd/home/002/yibei/simple2_bidsapp_babs"
-    "/home/yibei/simple2_bidsapp_babs"
+    "$HOME/mriqc_bidsapp"
 )
 
 # ============================================================================
@@ -106,6 +107,7 @@ babs_prepare_yaml_config \
     "BIDS_ORIGIN=${BIDS_ORIGIN}" \
     "NIDM_ORIGIN=${NIDM_ORIGIN}" \
     "COMPUTE_SPACE=${COMPUTE_DIR}" \
+    "TMPDIR_HOST=${TMPDIR_HOST}" \
     "RUN_DATE=${RUN_DATE}"
 
 # Remove NIDM input from config if it doesn't exist
@@ -133,9 +135,9 @@ babs_check_nidm "$DATASET_NAME" "$SITE_NAME"
 # ============================================================================
 OUTPUT_DIR="$(babs_study_output_dir "$DATASET_NAME" "$SITE_NAME" "mriqc-nidm")"
 
-# Adjust `TMPDIR_HOST` if your bind uses a different location.
-TMPDIR_HOST=/tscc/lustre/ddn/scratch/sehatton/temp
-export SINGULARITYENV_TMPDIR="$TMPDIR_HOST"
+# Ensure a disk-backed tmpdir for Singularity. TMPDIR_HOST is defined in
+# babs_common.sh (defaults under SCRATCH_DIR_COMPUTE, override in .env) and is
+# the same value baked into the rendered config's singularity_args.
 mkdir -p "$TMPDIR_HOST"
 chmod 700 "$TMPDIR_HOST"
 # Export TMPDIR for host processes too

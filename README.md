@@ -28,28 +28,25 @@ Three kinds of storage are involved, and they are deliberately separate:
 - **Scratch** (`SCRATCH_DIR_*`) holds each run's working copy of the config, the container DataLad dataset, and the run log. Disposable after harvest.
 - **Compute space** (`SCRATCH_DIR_COMPUTE`) is where the individual SLURM jobs clone, run, and zip their results. BABS cleans up after successful jobs.
 
-Create a `.env` file in the project directory (a working template is provided
-as `.env` in the repo; copy/adjust it as needed). Use **valid bash syntax** —
-no spaces around `=`, and quote any paths containing spaces:
+## Prerequisites (one-time setup)
+
+### 1. BABS — must be installed from git main, not PyPI
+
+The configs here use the configurable BIDS-study layout from [PennLINC/babs PR #369](https://github.com/PennLINC/babs/pull/369) (`analysis_path: "."`, inputs under `sourcedata/`, RIA stores under `.babs/`). That PR is merged upstream, but the latest release (0.5.4) predates it — and the failure mode on any released babs is nasty: the three layout keys are **silently ignored**, `babs init` succeeds, and you get a legacy-layout project with no error, which the harvest script then can't process.
+
+`environment_hpc.yml` in this repo installs that git-main babs for you, along with DataLad, git-annex and the rest:
 
 ```bash
-BASE_DIR='/path/of/current/repo/' # e.g., '/home/yibei/simple2_bidsapp_babs'
-SCRATCH_DIR='/path/to/your/output/' # e.g., '/orcd/scratch/bcs/001/yibei/simple2'
-
-# App-specific scratch directories (used by the wrapper scripts)
-SCRATCH_DIR_ANTS="${SCRATCH_DIR}/ants_bidsapp_babs"
-SCRATCH_DIR_FS="${SCRATCH_DIR}/fs_bidsapp_babs"
-SCRATCH_DIR_MRIQC="${SCRATCH_DIR}/mriqc_bidsapp_babs"
-
-SCRATCH_DIR_COMPUTE='/path/to/your/computespace' # e.g., '/orcd/scratch/bcs/001/yibei/'
-DATALAD_SET_DIR='/path/to/your/input/data/' # e.g., '/orcd/data/satra/002/datasets/simple2_datalad'
+micromamba create -n babs -f environment_hpc.yml -y
+micromamba activate babs
+babs --version    # must be >= 0.5.5
 ```
 
-(`environment_hpc.yml` ships in this repo; it is BABS's own HPC environment file.) The wrappers activate the `babs` env by name — set `BABS_ENV` in `.env` if you called yours something else — and refuse to run if the active babs predates 0.5.5, so a stale env fails loudly rather than building a broken project. Once a release containing the layout exists, plain `pip install babs` will do.
+The wrappers activate the `babs` env by name — set `BABS_ENV` in `.env` if you called yours something else — and **refuse to run** if `babs` is not on PATH or predates 0.5.5, so a stale or incomplete env fails loudly rather than building a broken project. Once a release containing the layout exists, plain `pip install babs` will do.
 
 ### 2. Cluster software
 
-Apptainer (or Singularity) for running the containers, and `git-annex` — the wrappers load the `apptainer` module themselves; git-annex comes with the micromamba env. DataLad is installed by `environment_hpc.yml`.
+Apptainer (or Singularity) for running the containers, and `git-annex` — the wrappers load the `apptainer` module themselves; git-annex comes with the micromamba env. DataLad is installed by `environment_hpc.yml`. If your cluster provides SingularityPro instead, change the `module load` line in each `config_<app>-nidm.yaml`.
 
 ### 3. The container image
 
@@ -68,6 +65,10 @@ SCRATCH_DIR_COMPUTE="<scratch>"                          # where SLURM jobs exec
 DATALAD_SET_DIR="<data>/simple2_datalad"                 # root of the study tree
 FS_LICENSE="$HOME/license.txt"                           # FreeSurfer runs only
 ```
+
+All six of `BASE_DIR`, `SCRATCH_DIR_ANTS`, `SCRATCH_DIR_FS`, `SCRATCH_DIR_MRIQC`, `SCRATCH_DIR_COMPUTE` and `DATALAD_SET_DIR` are **required** — the wrappers exit with a named error if any is missing, rather than letting `babs init` fail later with "parent folder does not exist". Define all of them even if you only intend to run one app.
+
+`.env` is **gitignored**, so it holds your paths and is not shared. That is why the paths it needs are documented here rather than shipped in it. Optional extras — `BABS_ENV`, `BABS_NIDM_DERIV`, `TMPDIR_HOST` (defaults to `${SCRATCH_DIR_COMPUTE}/singularity_tmp`) — are listed under Knobs.
 
 ### 5. FreeSurfer license (FreeSurfer runs only)
 
@@ -119,6 +120,10 @@ All optional, all environment variables:
 | `BABS_LIST_SUB_FILE=/path.csv` | Restrict the project to the subjects in a CSV (single `sub_id` column). For pilots and re-runs. |
 | `BABS_ENV=name` | Micromamba env holding babs (default `babs`). |
 | `BABS_NIDM_DERIV=name` | Which NIDM derivative under `derivatives/` to augment (default `nidm_4.5.0`). |
+| `TMPDIR_HOST=path` | Disk-backed scratch handed to the container as its `TMPDIR`/`$HOME` and bound to `/tmp` (default `${SCRATCH_DIR_COMPUTE}/singularity_tmp`). Must be a real writable filesystem, not node-local `/tmp`. |
+| `BABS_SHARED_GROUP=name` | Unix group given write access to the project (default: inherited from the parent directory; `none` opts out). |
+| `BABS_TEXT2GIT=0` | Keep `.ttl`/`.json`/`.tsv` in git-annex instead of git. Only sensible if you want the annexed, read-only behaviour. |
+| `BABS_SKIP_PR369_CHECK=1` | Skip the babs version check. Only for a deliberate dev install; the run then proceeds without verifying the study layout is supported. |
 
 ## While the jobs run
 
@@ -132,7 +137,7 @@ babs status
 
 Two SLURM realities to know about:
 
-**Preemption is expected.** The configs use `mit_preemptable` (591 nodes, 2-day ceiling) rather than `mit_normal` (50 nodes, 12 h) — more throughput, occasional casualties. Every config also sets `#SBATCH --no-requeue`, and must: the partition requeues preempted jobs under the *same* SLURM id, the job then recomputes the same branch name, and its `mkdir` fails. `--no-requeue` turns preemption into a clean failure that can simply be resubmitted. (Of the 38 Caltech FreeSurfer jobs, 4 were preempted; all completed on resubmission.)
+**Preemption may happen.** Every config sets `#SBATCH --no-requeue`, and must: on a partition with `PreemptMode=REQUEUE`, a preempted job is requeued under the *same* SLURM id, the job then recomputes the same branch name, and its `mkdir` fails against the directory the killed attempt left behind. `--no-requeue` turns preemption into a clean failure that can simply be resubmitted. It costs nothing on a partition that never preempts, which is why it is set unconditionally. (Of the 38 Caltech FreeSurfer jobs on the original MIT partition, 4 were preempted; all completed on resubmission.)
 
 **Resubmission only works after the queue drains.** `babs submit` refuses to run — "There are still jobs running" — while *any* of the project's jobs are pending or running. So when a preemption notice arrives mid-run, there is nothing to do yet. Wait for the whole array to finish, then run one batch round:
 
@@ -169,9 +174,13 @@ Each app's YAML config sets its SLURM resources, verified against real runs:
 
 | Config | Resources | Notes |
 |---|---|---|
-| `config_freesurfer-nidm.yaml` | 8 CPUs, 24 GB, 3.5 h | needs `FS_LICENSE`; jobs measured ~2–3 h, ~29 GB peak |
-| `config_ants-nidm.yaml` | 8 CPUs, 32 GB, 18 h | joint label fusion dominates the time |
-| `config_mriqc-nidm.yaml` | 12 CPUs, 18 GB, 25 min | |
+| `config_freesurfer-nidm.yaml` | 8 CPUs, 32 GB, 48 h | needs `FS_LICENSE`; jobs measured ~2–3 h, ~24 GB peak. The wall-clock is a scheduling ceiling, not a runtime estimate. |
+| `config_ants-nidm.yaml` | 8 CPUs, 32 GB, 24 h | joint label fusion dominates the time; measured 1 h 25 m, 17.9 GB peak |
+| `config_mriqc-nidm.yaml` | 12 CPUs, 18 GB, 24 h | jobs measured ~5 min, 10.4 GB peak. `--mem` must stay above the app's own 16 G. |
+
+Every config requests `--no-requeue`, and every config carries a long comment explaining why: on a partition with `PreemptMode=REQUEUE`, a preempted job is requeued under the *same* SLURM id, so it recomputes the same branch name and its bare `mkdir` fails. The flag is a no-op on partitions that do not preempt, so it is safe to keep regardless of which partition you target.
+
+The wall-clock values are deliberately far above the measurements. On a cluster, a too-tight `--time` is not a small inconvenience — it means the job is killed mid-run and has to be resubmitted, so the ceiling is set for the slowest plausible node rather than the median one. Adjust `--partition`, `--qos` and `--account` for your site; check with `scontrol show partition <name>`.
 
 The wrappers substitute the environment-specific values (paths, license, session flag) into a copy of the config at launch; the copy lands in the scratch run directory so every run records exactly what it used.
 
