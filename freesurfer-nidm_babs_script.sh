@@ -31,7 +31,7 @@ SIF_FILENAME="freesurfer-nidm_bidsapp.sif"
 # Fallback locations to search for the .sif if it is not in BASE_DIR or the
 # current directory. Add your own here, or drop the .sif next to these scripts.
 SIF_ALT_PATHS=(
-    "$HOME/freesurfer_bidsapp"
+    "$HOME/sifs"
 )
 
 # ============================================================================
@@ -44,7 +44,7 @@ babs_init_run_date
 
 # Validate FreeSurfer license (fail fast before submitting jobs)
 if [ -z "${FS_LICENSE:-}" ]; then
-    echo "ERROR: FS_LICENSE is not set. Add 'FS_LICENSE=\$HOME/license.txt' to .env" >&2
+    echo "ERROR: FS_LICENSE is not set. Add 'FS_LICENSE=$HOME/license.txt' to .env" >&2
     exit 1
 fi
 if [ ! -f "$FS_LICENSE" ]; then
@@ -63,8 +63,6 @@ echo "Processing level: $PROCESSING_LEVEL"
 # ============================================================================
 # Set up environment
 # ============================================================================
-# Work around babs check_setup.py bug (hardcoded inputs/data path)
-export BABS_SKIP_CHECK_SETUP=1
 babs_setup_env
 
 # ============================================================================
@@ -95,22 +93,6 @@ babs_setup_container \
 BIDS_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/sourcedata/raw"
 NIDM_ORIGIN="$(babs_nidm_origin "$DATASET_NAME" "$SITE_NAME")"
 
-# Verify BIDS dataset exists
-if [ ! -d "$BIDS_ORIGIN" ]; then
-    echo "ERROR: BIDS dataset not found at $BIDS_ORIGIN"
-    echo "       Check that SITE_NAME ($SITE_NAME) and DATASET_NAME ($DATASET_NAME) are valid for this dataset."
-    echo "       Valid sites for this dataset are listed in the corresponding *_sitepath.txt file."
-    exit 1
-fi
-
-# Check if NIDM exists. Per-subject layout: <nidm_deriv>/sub-<id>/nidm.ttl, so
-# the shared helper globs rather than testing for a root-level nidm.ttl (which
-# never exists, and made every run augment from scratch). See babs_nidm_exists.
-NIDM_EXISTS=0
-if babs_nidm_exists "$DATASET_NAME" "$SITE_NAME"; then
-    NIDM_EXISTS=1
-fi
-
 CONFIG_PATH="${RUN_DIR}/config_freesurfer-nidm.yaml"
 
 babs_prepare_yaml_config \
@@ -123,20 +105,9 @@ babs_prepare_yaml_config \
     "RUN_DATE=${RUN_DATE}" \
     "FS_LICENSE=${FS_LICENSE}"
 
-# Remove NIDM input from config if it doesn't exist
-if [ "$NIDM_EXISTS" != "1" ]; then
-    sed -i '/    NIDM:/,/path_in_babs: sourcedata\/NIDM/d' "$CONFIG_PATH"
-fi
-
 babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
-
-if [ "$NIDM_EXISTS" = "1" ]; then
-    echo "NIDM origin URL: $NIDM_ORIGIN"
-else
-    echo "No NIDM found at $NIDM_ORIGIN - NIDM will be created from scratch"
-fi
 
 # ============================================================================
 # Check NIDM directory

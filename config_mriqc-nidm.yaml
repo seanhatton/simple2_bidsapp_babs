@@ -93,10 +93,6 @@ script_preamble: |
     source ~/.bashrc
     micromamba activate babs
     module load singularitypro/3.11
-    # ${TMPDIR_HOST} must be the same path bound in singularity_args above --
-    # SINGULARITYENV_* only takes effect inside the container, so pointing it
-    # somewhere unbound gives the app a TMPDIR that does not exist in its
-    # namespace.
     export SINGULARITYENV_DATALAD_SSH_SOCKETDIR=${TMPDIR_HOST}
     export SINGULARITYENV_TMPDIR=${TMPDIR_HOST}
 # Where to run the jobs:

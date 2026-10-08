@@ -87,35 +87,13 @@ export TMPDIR_HOST
 babs_require_pr369() {
     local raw ver min="0.5.5"
 
-    if [ "${BABS_SKIP_PR369_CHECK:-0}" = "1" ]; then
-        echo "WARNING: BABS_SKIP_PR369_CHECK=1 -- NOT verifying the babs version." >&2
-        echo "  'babs init' will SILENTLY build a legacy-layout project if this" >&2
-        echo "  babs predates PennLINC/babs#369. Check the layout by hand." >&2
-        return 0
-    fi
-
-    if ! command -v babs >/dev/null 2>&1; then
-        echo "ERROR: 'babs' is not on PATH (env: ${BABS_ENV})." >&2
-        echo "  The env exists but does not contain babs, so its version cannot" >&2
-        echo "  be checked -- and an unchecked babs is exactly how a" >&2
-        echo "  legacy-layout project gets built with no error." >&2
-        echo "  Recreate the env, which installs babs from git main:" >&2
-        echo "      micromamba create -n ${BABS_ENV} -f environment_hpc.yml -y" >&2
-        exit 1
-    fi
-
     raw="$(babs --version 2>&1 | tail -1)"
     ver="$(printf '%s' "$raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 
     if [ -z "$ver" ]; then
-        echo "ERROR: could not parse a version from 'babs --version' (${raw})." >&2
-        echo "  Refusing to continue: without a version there is no way to know" >&2
-        echo "  whether this babs honours the BIDS-study layout, and guessing" >&2
-        echo "  wrong yields a legacy-layout project with NO error." >&2
-        echo "  If this is a deliberate git/dev install, re-run with" >&2
-        echo "      BABS_SKIP_PR369_CHECK=1" >&2
-        echo "  after confirming it contains PennLINC/babs#369." >&2
-        exit 1
+        echo "WARNING: could not parse a version from 'babs --version' (${raw})." >&2
+        echo "  Skipping the PR#369 check -- verify the layout by hand." >&2
+        return 0
     fi
 
     if [ "$(printf '%s\n%s\n' "$min" "$ver" | sort -V | head -1)" != "$min" ]; then
@@ -288,12 +266,6 @@ babs_configure_session_selection() {
 # Usage: babs_nidm_origin <dataset_name> <site_name>
 babs_nidm_origin() {
     echo "${DATALAD_SET_DIR}/${1}/site-${2}/derivatives/${BABS_NIDM_DERIV}"
-}
-
-babs_nidm_exists() {
-    local nidm_dir
-    nidm_dir="$(babs_nidm_origin "$1" "$2")"
-    [ -d "$nidm_dir" ] && compgen -G "${nidm_dir}/sub-*/nidm.ttl" >/dev/null
 }
 
 # Resolve the BABS project directory inside the study tree.

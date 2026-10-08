@@ -31,7 +31,7 @@ SIF_FILENAME="mriqc-nidm_bidsapp.sif"
 # Fallback locations to search for the .sif if it is not in BASE_DIR or the
 # current directory. Add your own here, or drop the .sif next to these scripts.
 SIF_ALT_PATHS=(
-    "$HOME/mriqc_bidsapp"
+    "$HOME/sifs"
 )
 
 # ============================================================================
@@ -53,8 +53,6 @@ echo "Processing level: $PROCESSING_LEVEL"
 # ============================================================================
 # Set up environment
 # ============================================================================
-# Work around babs check_setup.py bug (hardcoded inputs/data path)
-export BABS_SKIP_CHECK_SETUP=1
 babs_setup_env
 
 # ============================================================================
@@ -85,14 +83,6 @@ babs_setup_container \
 BIDS_ORIGIN="${DATALAD_SET_DIR}/${DATASET_NAME}/site-${SITE_NAME}/sourcedata/raw"
 NIDM_ORIGIN="$(babs_nidm_origin "$DATASET_NAME" "$SITE_NAME")"
 
-# Check if NIDM exists. Per-subject layout: <nidm_deriv>/sub-<id>/nidm.ttl, so
-# the shared helper globs rather than testing for a root-level nidm.ttl (which
-# never exists, and made every run augment from scratch). See babs_nidm_exists.
-NIDM_EXISTS=0
-if babs_nidm_exists "$DATASET_NAME" "$SITE_NAME"; then
-    NIDM_EXISTS=1
-fi
-
 # Verify BIDS dataset exists
 if [ ! -d "$BIDS_ORIGIN" ]; then
     echo "ERROR: BIDS dataset not found at $BIDS_ORIGIN"
@@ -112,20 +102,9 @@ babs_prepare_yaml_config \
     "TMPDIR_HOST=${TMPDIR_HOST}" \
     "RUN_DATE=${RUN_DATE}"
 
-# Remove NIDM input from config if it doesn't exist
-if [ "$NIDM_EXISTS" != "1" ]; then
-    sed -i '/    NIDM:/,/path_in_babs: sourcedata\/NIDM/d' "$CONFIG_PATH"
-fi
-
 babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
-
-if [ "$NIDM_EXISTS" = "1" ]; then
-    echo "NIDM origin URL: $NIDM_ORIGIN"
-else
-    echo "No NIDM found at $NIDM_ORIGIN - NIDM will be created from scratch"
-fi
 
 # ============================================================================
 # Check NIDM directory

@@ -53,8 +53,6 @@ echo "Processing level: $PROCESSING_LEVEL"
 # ============================================================================
 # Set up environment
 # ============================================================================
-# Work around babs check_setup.py bug (hardcoded inputs/data path)
-export BABS_SKIP_CHECK_SETUP=1
 babs_setup_env
 
 # ============================================================================
@@ -93,14 +91,6 @@ if [ ! -d "$BIDS_ORIGIN" ]; then
     exit 1
 fi
 
-# Check if NIDM exists. Per-subject layout: <nidm_deriv>/sub-<id>/nidm.ttl, so
-# the shared helper globs rather than testing for a root-level nidm.ttl (which
-# never exists, and made every run augment from scratch). See babs_nidm_exists.
-NIDM_EXISTS=0
-if babs_nidm_exists "$DATASET_NAME" "$SITE_NAME"; then
-    NIDM_EXISTS=1
-fi
-
 CONFIG_PATH="${RUN_DIR}/config_ants-nidm.yaml"
 
 babs_prepare_yaml_config \
@@ -112,15 +102,10 @@ babs_prepare_yaml_config \
     "TMPDIR_HOST=${TMPDIR_HOST}" \
     "RUN_DATE=${RUN_DATE}"
 
-# Remove NIDM input from config if it doesn't exist
-if [ "$NIDM_EXISTS" != "1" ]; then
-    # Remove the NIDM section from the YAML config
-    sed -i '/    NIDM:/,/path_in_babs: sourcedata\/NIDM/d' "$CONFIG_PATH"
-fi
-
 babs_configure_session_selection "$CONFIG_PATH" "$PROCESSING_LEVEL" || exit 1
 
 echo "BIDS origin URL: $BIDS_ORIGIN"
+echo "NIDM origin URL: $NIDM_ORIGIN"
 
 # ============================================================================
 # Check NIDM directory
